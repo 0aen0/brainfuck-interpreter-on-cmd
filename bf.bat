@@ -28,7 +28,7 @@ FOR /F "eol=c delims=*" %%I IN (%work_file%) DO SET bf_prog=!bf_prog!%%I
 rem узнаем длину программы
 Echo.%bf_prog%>"%TEMP%\%~n0.tmp"
 For %%i In ("%TEMP%\%~n0.tmp") Do Set /A bf_len=%%~zi-2
-rem Выводим тест, что программа работает, а не зависла.
+rem Выводим текст, что программа работает, а не зависла.
 echo Executing programm
 echo %bf_prog%
 echo.
