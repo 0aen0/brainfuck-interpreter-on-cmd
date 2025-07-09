@@ -9,66 +9,107 @@ set maxmem=100
 echo Brainfuck Interpreter
 echo.
 
-IF "%1" NEQ "" GOTO :init
-echo Usage: %~nx0 file.bf
-goto :eof
+set show_program=0
+set dump_memory=0
+set file_name=
+
+:parse_args
+if "%~1"=="" goto :args_parsed
+if /i "%~1"=="-l" (
+    set show_program=1
+    shift
+    goto :parse_args
+)
+if /i "%~1"=="-d" (
+    set dump_memory=1
+    shift
+    goto :parse_args
+)
+set file_name=%~1
+shift
+goto :parse_args
+
+:args_parsed
+IF NOT DEFINED file_name (
+    echo Usage: %~nx0 [-l] [-d] file.bf
+    echo   -l  Show program before execution
+    echo   -d  Dump memory to memory.dmp after execution
+    goto :eof
+)
 
 :init
-rem Инициализируем память.
+rem Инициализация памяти
 set /a __maxindex=%maxmem% - 1
 for /l %%i in (0,1,%__maxindex%) do set mem_%%i=0
 set mp=0
 set sp=0
 set cp=0
 
-rem читаем программу в память
-set work_file=%1
+rem Чтение программы
 set bf_prog=
-FOR /F "eol=c delims=*" %%I IN (%work_file%) DO SET bf_prog=!bf_prog!%%I
-rem узнаем длину программы
-Echo.%bf_prog%>"%TEMP%\%~n0.tmp"
-For %%i In ("%TEMP%\%~n0.tmp") Do Set /A bf_len=%%~zi-2
-rem Выводим тест, что программа работает, а не зависла.
-echo Executing programm
-echo %bf_prog%
+FOR /F "usebackq delims=" %%I IN ("%file_name%") DO (
+    set "line=%%I"
+    set "line=!line:<=^<!"
+    set "line=!line:>=^>!"
+    set bf_prog=!bf_prog!!line!
+)
+
+rem Получение длины программы
+set bf_len=0
+:get_length
+if "!bf_prog:~%bf_len%,1!" NEQ "" (
+    set /a bf_len+=1
+    goto :get_length
+)
+
+rem Вывод программы если указан ключ -l
+if %show_program% EQU 1 (
+    echo Program:
+    setlocal DISABLEDELAYEDEXPANSION
+    type %file_name%
+    endlocal
+    echo.
+)
+
+echo Executing program...
 echo.
 
-rem рабочий цикл
+rem Рабочий цикл
 :work
 set cop=!bf_prog:~%cp%,1!
 rem call :debug
 
 if "%cop%" == "+" (
-  set tmp=!mem_%mp%!
-  set /a tmp += 1
-  if !tmp!==256 set tmp=0
-  set mem_%mp%=!tmp!
+    set tmp=!mem_%mp%!
+    set /a tmp += 1
+    if !tmp!==256 set tmp=0
+    set mem_%mp%=!tmp!
 ) else if "%cop%" == "-" (
-  set tmp=!mem_%mp%!
-  set /a tmp -= 1
-  if !tmp! LSS 0 set tmp=255
-  set mem_%mp%=!tmp!
-) else if "%cop%" == ")" (
-  set /a mp +=1
-  if !mp! == %maxmem% set mp=0
-) else if "%cop%" == "(" (
-  set /a mp -=1
-  if !mp! == -1 set /a mp=%maxmem% - 1
+    set tmp=!mem_%mp%!
+    set /a tmp -= 1
+    if !tmp! LSS 0 set tmp=255
+    set mem_%mp%=!tmp!
+) else if "%cop%" == ">" (
+    set /a mp +=1
+    if !mp! == %maxmem% set mp=0
+) else if "%cop%" == "<" (
+    set /a mp -=1
+    if !mp! == -1 set /a mp=%maxmem% - 1
 ) else if "%cop%" == "," (
-  call :comma
+    call :comma
 ) else if "%cop%" == "." (
-  set tmp=!mem_%mp%!
-  call :Echochr !tmp!
+    set tmp=!mem_%mp%!
+    call :Echochr !tmp!
 ) else if "%cop%" == "[" (
-  set tmp=!mem_%mp%!
-  if !tmp!==0 (
-    call :skip1
-  )
+    set tmp=!mem_%mp%!
+    if !tmp!==0 (
+        call :skip1
+    )
 ) else if "%cop%" == "]" (
-  set tmp=!mem_%mp%!
-  if !tmp! NEQ 0 (
-    call :skip2
-  )
+    set tmp=!mem_%mp%!
+    if !tmp! NEQ 0 (
+        call :skip2
+    )
 )
 
 set /a cp += 1
@@ -92,7 +133,7 @@ exit /b 0
 :skip2
 :w21
     set /a cp -= 1
-    if "%cp%" LSS "0" (
+    if %cp% LSS 0 (
       call :err_print "[ not found"
       exit /b 0
     )
@@ -104,7 +145,7 @@ exit /b 0
 exit /b 0
 
 :comma
-rem Не реализованно
+rem Не реализовано
 exit /b 0
 
 rem ==========================================================================
@@ -121,7 +162,6 @@ for /f %%t in ('cmd /c "echo %%char:~!code!,1%%"') do <nul set /p strTemp="%%t"
 )
 exit /b 0
 
-
 rem ==========================================================================
 rem Процедура debug
 rem Печать состояния переменных и памяти
@@ -132,7 +172,6 @@ echo cp=%cp%, mp=%mp%, cop=%cop%, mem[mp]=%tmp%
 exit /b 0
 rem ==========================================================================
 
-
 rem ==========================================================================
 rem Процедура EchoWithoutCrLf
 rem %1 : текст для вывода.
@@ -141,7 +180,6 @@ rem ==========================================================================
 <nul set /p strTemp="%~1"
 exit /b 0
 rem ==========================================================================
-
 
 rem ==========================================================================
 rem Процедура err_print
@@ -156,13 +194,28 @@ echo mp: %mp% >>register.dmp
 echo sp: %sp% >>register.dmp
 set /a __maxindex=%maxmem% - 1
 if exist memory.dmp del memory.dmp
-for /l %%i in (0,1,%__maxindex%) do echo !mem_%%i! >>memory.dmp
+for /l %%i in (0,1,%__maxindex%) do (
+    rem Форматирование адреса в 4 цифры с ведущими нулями
+    set "addr=000%%i"
+    set "addr=!addr:~-4!"
+    echo !addr!: !mem_%%i! >>memory.dmp
+)
 exit /b 0
 rem ==========================================================================
 
 :exit
 set /a __maxindex=%maxmem% - 1
-if exist memory.dmp del memory.dmp
-for /l %%i in (0,1,%__maxindex%) do echo !mem_%%i! >>memory.dmp
-echo.
+
+if %dump_memory% EQU 1 (
+    if exist memory.dmp del memory.dmp
+    for /l %%i in (0,1,%__maxindex%) do (
+        rem Форматирование адреса в 4 цифры с ведущими нулями
+        set "addr=000%%i"
+        set "addr=!addr:~-4!"
+        echo !addr!: !mem_%%i! >>memory.dmp
+    )
+    echo.
+    echo Memory dumped to memory.dmp
+)
+
 ENDLOCAL
